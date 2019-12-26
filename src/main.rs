@@ -14,12 +14,18 @@ fn init() {
 async fn main() -> Result<(), fantoccini::error::CmdError> {
     init();
 
-    let mut climatico_scraper =
-        ClimaticoScraper::new("./out/climatico/sources/", "./out/climatico/product_info/");
+    let mut climatico_scraper = ClimaticoScraper::new(
+        "./out/climatico/sources/ac_residential",
+        "./out/climatico/product_info/ac_residential",
+    );
 
-    climatico_scraper
-        .save_page_sources("https://www.climatico.ro/aer-conditionat/vrv")
-        .await?;
+    //    climatico_scraper
+    //        .save_page_sources("https://www.climatico.ro/aer-conditionat/vrv")
+    //        .await?;
+
+    climatico_scraper.extract_ac_product().await?;
+
+    climatico_scraper.close_session().await?;
 
     info!("Terminating application.");
 

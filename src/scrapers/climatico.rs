@@ -1,14 +1,18 @@
 //! A module for scraping `https://www.climatico.ro/`.
 
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
 
 use fantoccini::{Client, Locator};
 use log::{error, info};
+use select::document::Document;
+use select::predicate;
 use url::Url;
 
 use crate::scrapers::url_to_html_file_name;
+use select::predicate::Predicate;
 
 /// A web scraper for `https://www.climatico.ro/` that employs an internal WebDriver client.
 ///
@@ -38,8 +42,8 @@ impl<'a> Default for ClimaticoScraper<'a> {
             }
         };
 
-        let page_sources_output_path = "./out";
-        let product_info_output_path = "./out";
+        let page_sources_output_path = "./out/";
+        let product_info_output_path = "./out/";
 
         info!("Creating page sources output directory structure, if it's missing.");
 
@@ -90,7 +94,8 @@ impl<'a> ClimaticoScraper<'a> {
         }
     }
 
-    /// Connects to a WebDriver session on localhost:
+    /// Save page sources for an entire product listing, starting at [first_page_url].
+    /// Automatically finds the next page and stops when it doesn't find any more pages.
     pub async fn save_page_sources(
         &mut self,
         first_page_url: &str,
@@ -100,7 +105,7 @@ impl<'a> ClimaticoScraper<'a> {
         let mut page_url = Url::from_str(first_page_url)
             .expect("Failed to parse argument first_page_url into a valid URL.");
 
-        // Navigate to each page of the product listing and save the pages to disk:
+        // Search for the next page automatically, navigate to it and save source to disk:
         loop {
             let source_file_pathbuf = match url_to_html_file_name(&page_url) {
                 Ok(p) => self.page_sources_output_path.join(p),
@@ -144,12 +149,60 @@ impl<'a> ClimaticoScraper<'a> {
                 }
                 Err(_) => {
                     info!("No more pages left.");
-
                     break;
                 }
             }
         }
 
         Ok(())
+    }
+
+    pub async fn extract_ac_product(&mut self) -> std::io::Result<()> {
+        // check if path is dir and exists on disk:
+        if self.page_sources_output_path.is_dir() {
+            for entry in std::fs::read_dir(self.page_sources_output_path)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    info!("Extracting ACProduct from file {:?}", path);
+
+                    let document = Document::from_read(File::open(path)?)?;
+
+                    let product_items_predicate = predicate::Class("products")
+                        .and(predicate::Class("list"))
+                        .and(predicate::Class("items"))
+                        .and(predicate::Class("product-items"))
+                        .descendant(predicate::Name("li"));
+
+                    for product_item in document.find(product_items_predicate) {
+                        let product_img_predicate = predicate::Descendant(
+                            predicate::Name("span").and(predicate::Class("product-image-wrapper")),
+                            predicate::Name("img").and(predicate::Class("product-image-photo")),
+                        );
+
+                        for product_img_node in product_item.find(product_img_predicate) {
+                            let product_img_url = product_img_node.attr("data-amsrc").unwrap_or("");
+
+                            info!("Found product img: {:?}", product_img_url);
+                        }
+                    }
+                }
+            }
+        } else {
+            error!(
+                "{:?} is not a directory or does not exist on disk.",
+                self.page_sources_output_path
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Terminate WebDriver session.
+    ///
+    /// Calling this is necessary with some Web Drivers that don't support session sharing.
+    /// Such sessions become unusable when trying to reconnect.
+    pub async fn close_session(&mut self) -> Result<(), fantoccini::error::CmdError> {
+        self.client.close().await
     }
 }
