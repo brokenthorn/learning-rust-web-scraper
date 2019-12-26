@@ -24,13 +24,13 @@ pub fn url_to_html_file_name(url: &Url) -> Result<String, String> {
     let path = url.path().replace("/", "_slash_");
     let query_params = match url.query() {
         None => None,
-        Some(q) => Some(q.replace("=", "_").replace("&", "_")),
+        Some(q) => Some(q.replace("=", "_eq_").replace("&", "_")),
     };
 
     match query_params {
-        None => Ok(format!("{}__{}__{}__{}.html", scheme, host, port, path)),
+        None => Ok(format!("{}__{}__{}_{}.html", scheme, host, port, path)),
         Some(qparms) => Ok(format!(
-            "{}__{}__{}__{}__{}.html",
+            "{}__{}__{}_{}__{}.html",
             scheme, host, port, path, qparms
         )),
     }
