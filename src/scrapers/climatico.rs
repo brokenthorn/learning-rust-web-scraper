@@ -10,6 +10,10 @@ use url::Url;
 
 use crate::scrapers::url_to_html_file_name;
 
+/// A web scraper for `https://www.climatico.ro/` that employs an internal WebDriver client.
+///
+/// The default instance or the one created with new(), connects the WebDriver client to
+/// `http://localhost:4444` immediately and will panic if it cannot establish a session.
 pub struct ClimaticoScraper<'a> {
     client: fantoccini::Client,
     /// Folder path for saving web page sources to disk.
@@ -21,6 +25,7 @@ pub struct ClimaticoScraper<'a> {
 }
 
 impl<'a> Default for ClimaticoScraper<'a> {
+    /// Create a new ClimaticoScraper using default configuration values.
     fn default() -> Self {
         info!("Creating ClimaticoScraper using default configuration.");
 
@@ -33,15 +38,29 @@ impl<'a> Default for ClimaticoScraper<'a> {
             }
         };
 
+        let page_sources_output_path = "./out";
+        let product_info_output_path = "./out";
+
+        info!("Creating page sources output directory structure, if it's missing.");
+
+        std::fs::create_dir_all(page_sources_output_path)
+            .expect("Failed to create page sources output directory structure.");
+
+        info!("Creating product info output directory structure, if it's missing.");
+
+        std::fs::create_dir_all(product_info_output_path)
+            .expect("Failed to create product info output directory structure.");
+
         Self {
             client,
-            page_sources_output_path: Path::new("./"),
-            product_info_output_path: Path::new("./"),
+            page_sources_output_path: Path::new(page_sources_output_path),
+            product_info_output_path: Path::new(product_info_output_path),
         }
     }
 }
 
 impl<'a> ClimaticoScraper<'a> {
+    /// Create a new ClimaticoScraper.
     pub fn new(page_sources_output_path: &'a str, product_info_output_path: &'a str) -> Self {
         info!("Creating ClimaticoScraper.");
 
@@ -54,15 +73,15 @@ impl<'a> ClimaticoScraper<'a> {
             }
         };
 
-        info!("Creating page_sources_output_path directory structure, if it's missing.");
+        info!("Creating page sources output directory structure, if it's missing.");
 
         std::fs::create_dir_all(page_sources_output_path)
-            .expect("Failed to create directory structure.");
+            .expect("Failed to create page sources output directory structure.");
 
-        info!("Creating product_info_output_path directory structure, if it's missing.");
+        info!("Creating product info output directory structure, if it's missing.");
 
         std::fs::create_dir_all(product_info_output_path)
-            .expect("Failed to create directory structure.");
+            .expect("Failed to create product info output directory structure.");
 
         Self {
             client,
@@ -71,6 +90,7 @@ impl<'a> ClimaticoScraper<'a> {
         }
     }
 
+    /// Connects to a WebDriver session on localhost:
     pub async fn save_page_sources(
         &mut self,
         first_page_url: &str,
@@ -133,33 +153,3 @@ impl<'a> ClimaticoScraper<'a> {
         Ok(())
     }
 }
-
-//impl ClimaticoScraper {
-//    /// Start scraping an entire product listing, starting at the page specified by the
-//    /// `product_listing_page_url` argument.
-//    ///
-//    /// __NOTE__: To determine the next page of the product listing, this function
-//    /// expects to find a `link` tag in the HTML header that points to the next URL.
-//    /// For example `<link rel="next" href="https://...?p=2">`.
-//    pub async fn scrape_product_listing(product_listing_page_url: &str) -> Result<u64, ()> {
-//        let current_url = product_listing_page_url;
-//
-//        loop {
-//            info!("Scraping {}", current_url);
-//            break;
-//        }
-//
-//        /*let client = HttpClient::builder()
-//            .timeout(Duration::from_secs(10))
-//            .redirect_policy(RedirectPolicy::Limit(10))
-//            .version_negotiation(VersionNegotiation::http11())
-//            .build()?;
-//
-//        client
-//            .get_async("https://www.yahoo.com/")
-//            .await?
-//            .copy_to_file("./test.html")*/
-//
-//        Ok(0)
-//    }
-//}
