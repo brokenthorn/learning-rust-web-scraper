@@ -18,7 +18,7 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
         ClimaticoScraper::new("./out/climatico/sources/", "./out/climatico/product_info/");
 
     climatico_scraper
-        .save_page_sources("https://www.climatico.ro/aer-conditionat/comercial")
+        .save_page_sources("https://www.climatico.ro/aer-conditionat/vrv")
         .await?;
 
     info!("Terminating application.");
