@@ -4,7 +4,8 @@ use url::{Origin, Url};
 
 pub mod climatico;
 
-/// Turns a URL to a HTML page into a valid file name.
+/// Turns a URL into a valid HTML file name that includes as much information about the original URL
+/// as possible.
 pub fn url_to_html_file_name(url: &Url) -> Result<String, String> {
     if url.cannot_be_a_base() {
         return Err("Cannot parse this URL. It cannot be a base URL.".to_string());
