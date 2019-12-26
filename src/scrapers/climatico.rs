@@ -54,6 +54,16 @@ impl<'a> ClimaticoScraper<'a> {
             }
         };
 
+        info!("Creating page_sources_output_path directory structure, if it's missing.");
+
+        std::fs::create_dir_all(page_sources_output_path)
+            .expect("Failed to create directory structure.");
+
+        info!("Creating product_info_output_path directory structure, if it's missing.");
+
+        std::fs::create_dir_all(product_info_output_path)
+            .expect("Failed to create directory structure.");
+
         Self {
             client,
             page_sources_output_path: Path::new(page_sources_output_path),
@@ -82,11 +92,6 @@ impl<'a> ClimaticoScraper<'a> {
                     panic!(e);
                 }
             };
-
-            info!("Creating page_sources_output_path directory structure, if it's missing.");
-
-            std::fs::create_dir_all(self.page_sources_output_path)
-                .expect("Failed to create directory structure.");
 
             info!("Navigating to page {:?}", page_url);
 
