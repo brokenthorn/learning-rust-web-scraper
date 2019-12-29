@@ -53,24 +53,26 @@ pub mod data {
 
     /// AC (air conditioning) product.
     #[derive(Debug, Serialize, Deserialize)]
-    pub struct ACProduct<'a> {
+    pub struct ACProduct {
         /// Product name.
-        pub name: &'a str,
+        pub name: String,
         /// Manufacturer name.
-        pub manufacturer: &'a str,
+        pub manufacturer: String,
 
         /// Uniquely identifying product code.
-        pub product_code: &'a str,
+        pub product_code: String,
+        // URL for the dedicated product page (details page).
+        pub product_url: String,
 
         /// URL for the product page on the reseller's website.
-        pub reseller_product_page_url: &'a str,
+        pub reseller_product_page_url: String,
         /// URL for the official manufacturer's product page.
-        pub manufacturer_product_page_url: &'a str,
+        pub manufacturer_product_page_url: String,
 
         /// File path for main image used to list the product.
-        pub listing_image_path: &'a str,
+        pub listing_image_path: String,
         /// URL for the main image used to list the product.
-        pub listing_image_url: &'a str,
+        pub listing_image_url: String,
 
         pub price: f32,
         pub currency: Currency,
@@ -78,19 +80,19 @@ pub mod data {
         /// Does the AC product have WiFi connectivity?
         pub has_wifi_connection: bool,
         /// Compatible mains voltage(s).
-        pub mains_voltage: &'a str,
+        pub mains_voltage: String,
         /// Internal cooling/heating unit length. Main dimension used to determine if the unit
         /// fits a certain mounting place.
-        pub internal_unit_length: &'a str,
+        pub internal_unit_length: String,
 
-        pub heating_noise_level: &'a str,
-        pub cooling_noise_level: &'a str,
+        pub heating_noise_level: String,
+        pub cooling_noise_level: String,
 
-        pub heating_energy_class: &'a str,
-        pub cooling_energy_class: &'a str,
+        pub heating_energy_class: String,
+        pub cooling_energy_class: String,
 
-        pub heating_btu_capacity: &'a str,
-        pub cooling_btu_capacity: &'a str,
+        pub heating_btu_capacity: String,
+        pub cooling_btu_capacity: String,
 
         /// A drill down of product categories and subcategories.
         ///
