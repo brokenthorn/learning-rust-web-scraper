@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ProductTemplate {
+#[derive(Debug, Serialize)]
+pub struct ShopifyProduct {
     #[serde(rename = "Handle")]
     pub handle: Option<String>,
     #[serde(rename = "Title")]
@@ -98,9 +98,9 @@ pub struct ProductTemplate {
     pub cost_per_item: Option<String>,
 }
 
-impl Default for ProductTemplate {
+impl Default for ShopifyProduct {
     fn default() -> Self {
-        ProductTemplate {
+        ShopifyProduct {
             handle: None,
             title: None,
             body_html: None,

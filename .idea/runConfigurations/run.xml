@@ -8,7 +8,7 @@
     <option name="backtrace" value="SHORT" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />
     <envs>
-      <env name="RUST_LOG" value="info" />
+      <env name="RUST_LOG" value="info,proconfort_rust_scraper=debug" />
       <env name="RUST_BACKTRACE" value="full" />
     </envs>
     <method v="2">

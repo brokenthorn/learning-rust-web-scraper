@@ -24,7 +24,7 @@ async fn main() -> Result<(), String> {
     //        .save_page_sources("https://www.climatico.ro/aer-conditionat/vrv")
     //        .await?;
 
-    ClimaticoScraper::extract_ac_product(
+    ClimaticoScraper::extract_ac_products(
         "./out/climatico/sources/ac_residential",
         "./out/climatico/product_info/ac_residential",
     )

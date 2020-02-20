@@ -6,7 +6,7 @@ pub mod climatico;
 
 /// Turns a URL into a valid HTML file name that includes as much information about the original URL
 /// as possible.
-pub fn url_to_html_file_name(url: &Url) -> Result<String, String> {
+pub fn url_to_file_name(url: &Url) -> Result<String, String> {
     if url.cannot_be_a_base() {
         return Err("Cannot parse this URL. It cannot be a base URL.".to_string());
     }
@@ -14,23 +14,21 @@ pub fn url_to_html_file_name(url: &Url) -> Result<String, String> {
     let origin = url.origin();
     let (scheme, host, port) = match origin {
         Origin::Opaque(_) => {
-            return Err(
-                "Cannot parse this URL into scheme, host and port. The origin is opaque."
-                    .to_string(),
-            );
+            return Err(String::from(
+                "Cannot parse this URL into scheme, host and port. The origin is opaque.",
+            ));
         }
         Origin::Tuple(s, h, p) => (s, h.to_string(), p),
     };
     let path = url.path().replace("/", "_slash_");
-    let query_params = match url.query() {
-        None => None,
-        Some(q) => Some(q.replace("=", "_eq_").replace("&", "_")),
-    };
+    let query_string = url
+        .query()
+        .map(|q| q.replace("=", "_eq_").replace("&", "_and_"));
 
-    match query_params {
-        None => Ok(format!("{}__{}__{}_{}.html", scheme, host, port, path)),
+    match query_string {
+        None => Ok(format!("{}_{}_{}_{}.html", scheme, host, port, path)),
         Some(qparms) => Ok(format!(
-            "{}__{}__{}_{}__{}.html",
+            "{}_{}_{}_{}_{}.html",
             scheme, host, port, path, qparms
         )),
     }

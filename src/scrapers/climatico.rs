@@ -11,9 +11,25 @@ use select::document::{Document, Find};
 use select::predicate::{Attr, Class, Name, Predicate};
 use url::Url;
 
-use crate::model::ProductTemplate;
+use crate::model::ShopifyProduct;
 use crate::scrapers::data::{ACProduct, Currency};
-use crate::scrapers::url_to_html_file_name;
+use crate::scrapers::url_to_file_name;
+
+fn create_webdriver_client() -> Result<Client, String> {
+    match futures::executor::block_on(Client::new("http://localhost:4444")) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn create_output_directories<'a>(
+    page_sources_output_path: &'a str,
+    product_info_output_path: &'a str,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(page_sources_output_path)?;
+    std::fs::create_dir_all(product_info_output_path)?;
+    Ok(())
+}
 
 /// A web scraper for `https://www.climatico.ro/` that employs an internal WebDriver client.
 ///
@@ -32,34 +48,23 @@ pub struct ClimaticoScraper<'a> {
 impl<'a> Default for ClimaticoScraper<'a> {
     /// Create a new ClimaticoScraper using default configuration values.
     fn default() -> Self {
-        info!("Creating ClimaticoScraper using default configuration.");
+        info!("Creating new ClimaticoScraper using default configuration.");
 
-        let client = match futures::executor::block_on(Client::new("http://localhost:4444")) {
+        let client = match create_webdriver_client() {
             Ok(c) => c,
-            // TODO: display error message in panic.
-            Err(e) => {
-                panic!(
-                    "Failed to create new WebDriver session with http://localhost:4444: {}",
-                    e
-                );
-            }
+            Err(e) => panic!(e),
         };
 
-        let page_sources_output_path = "./out/";
-        let product_info_output_path = "./out/";
+        let sources_out = "./out/sources/";
+        let products_out = "./out/products/";
 
-        info!("Creating page sources output directory structure, if it's missing.");
-        std::fs::create_dir_all(page_sources_output_path)
-            .expect("Failed to create page sources output directory structure.");
-
-        info!("Creating product info output directory structure, if it's missing.");
-        std::fs::create_dir_all(product_info_output_path)
-            .expect("Failed to create product info output directory structure.");
+        create_output_directories(sources_out, products_out)
+            .expect("Failed to create output directories.");
 
         Self {
             client,
-            page_sources_output_path: Path::new(page_sources_output_path),
-            product_info_output_path: Path::new(product_info_output_path),
+            page_sources_output_path: Path::new(sources_out),
+            product_info_output_path: Path::new(products_out),
         }
     }
 }
@@ -67,26 +72,15 @@ impl<'a> Default for ClimaticoScraper<'a> {
 impl<'a> ClimaticoScraper<'a> {
     /// Create a new ClimaticoScraper.
     pub fn new(page_sources_output_path: &'a str, product_info_output_path: &'a str) -> Self {
-        info!("Creating ClimaticoScraper.");
+        info!("Creating new ClimaticoScraper.");
 
-        let client = match futures::executor::block_on(Client::new("http://localhost:4444")) {
+        let client = match create_webdriver_client() {
             Ok(c) => c,
-            // TODO: display error message in panic.
-            Err(e) => {
-                panic!(
-                    "Failed to create new WebDriver session with http://localhost:4444: {}",
-                    e
-                );
-            }
+            Err(e) => panic!(e),
         };
 
-        info!("Creating page sources output directory structure, if it's missing.");
-        std::fs::create_dir_all(page_sources_output_path)
-            .expect("Failed to create page sources output directory structure.");
-
-        info!("Creating product info output directory structure, if it's missing.");
-        std::fs::create_dir_all(product_info_output_path)
-            .expect("Failed to create product info output directory structure.");
+        create_output_directories(page_sources_output_path, product_info_output_path)
+            .expect("Failed to create output paths.");
 
         Self {
             client,
@@ -95,77 +89,99 @@ impl<'a> ClimaticoScraper<'a> {
         }
     }
 
-    /// Save page sources for an entire product listing, starting at [start_page_url].
-    /// Automatically finds the next page and stops when it doesn't find any more pages.
-    pub async fn save_page_sources(
-        &mut self,
-        start_page_url: &str,
-    ) -> Result<(), fantoccini::error::CmdError> {
+    /// Save HTML page sources for an entire product listing, starting at [start_page_url].
+    ///
+    /// Automatically finds the next page URL, loads it and saves it as well.
+    pub async fn save_product_listing_pages(&mut self, start_page_url: &str) -> Result<(), String> {
         info!(
-            "Starting to save Climatico page sources starting with this page: {}",
+            "Saving product listing pages, starting with: {}",
             start_page_url
         );
 
-        let mut page_url = Url::from_str(start_page_url)
-            .expect("Failed to parse argument first_page_url into a valid URL.");
+        // Create a mutable page_url and then start looping through the web pages based on links:
+
+        let mut page_url = match Url::from_str(start_page_url) {
+            Ok(u) => u,
+            Err(e) => return Err(format!("Failed to parse argument 'start_page_url': {}", e)),
+        };
 
         loop {
-            // try to convert the page URL to a file name + path, to save the page source as:
-            let source_file_pathbuf = match url_to_html_file_name(&page_url) {
+            let source_file_pathbuf = match url_to_file_name(&page_url) {
                 Ok(file) => Some(self.page_sources_output_path.join(file)),
                 Err(err) => {
                     error!(
-                        "Could not determine file name to save page {:?}: {}",
+                        "Could not convert URL {:?} to a local file name: {}",
                         page_url, err
                     );
                     None
                 }
             };
 
-            // if the URL could be converted to a file path, continue:
             if let Some(file_path) = source_file_pathbuf {
-                debug!("Navigating to Climatico page {:?}", page_url);
-                self.client.goto(page_url.as_ref()).await?;
+                // 1. save page to disk:
 
-                info!("Saving Climatico page {:?} to {:?}", page_url, file_path);
-                let source = self.client.source().await?;
-                let mut source_file =
-                    std::fs::File::create(file_path.as_path()).unwrap_or_else(|_| {
-                        panic!(
-                            "Failed to create file {:?} to save page {:?}.",
-                            file_path, page_url
-                        )
-                    });
-                source_file
-                    .write_all(source.as_ref())
-                    .expect("Failed to write to disk.");
-            }
+                debug!("Navigating to {:?}", page_url);
 
-            // else update page_url or break this loop if there are no more pages left:
-            match self
-                .client
-                .find(Locator::Css("head > link[rel=next]"))
-                .await
-            {
-                Ok(mut link) => {
-                    let next_page_href = link
-                        .attr("href")
-                        .await?
-                        .expect("link tag with rel=next should have an href attribute!");
-                    page_url = match Url::from_str(next_page_href.as_str()) {
-                        Ok(url) => url,
-                        Err(_err) => {
-                            error!(
-                                "Failed while parsing URL for next page link: {}. Saving more Climatico page sources aborted.",
-                                next_page_href
-                            );
+                self.client
+                    .goto(page_url.as_ref())
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let file_path = std::path::Path::new(&file_path);
+                let file_result = std::fs::File::create(file_path);
+
+                if let Ok(mut file) = file_result {
+                    info!("Saving page {:?}", file_path);
+
+                    let source = self.client.source().await.map_err(|e| e.to_string())?;
+
+                    file.write_all(source.as_bytes())
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    error!("Failed to create file: {:?}", file_path);
+                }
+            } else {
+                // 2. update page_url and re-loop or break out of loop if there are no more pages left:
+
+                debug!("Finding link to next page on the listing.");
+
+                match self
+                    .client
+                    .find(Locator::Css("head > link[rel=next]"))
+                    .await
+                {
+                    Ok(mut link_el) => {
+                        let next_page_href_option =
+                            link_el.attr("href").await.map_err(|e| e.to_string())?;
+
+                        if let Some(next_page_href) = next_page_href_option {
+                            // update page_url for the next time we loop:
+                            page_url = match Url::from_str(next_page_href.as_str()) {
+                                Ok(url) => {
+                                    debug!("Link found.");
+
+                                    url
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed while parsing URL {} for next page: {}.",
+                                        next_page_href, e
+                                    );
+
+                                    break;
+                                }
+                            }
+                        } else {
+                            error!("Failed to lookup href attribute for head > link[rel=next].");
+
                             break;
                         }
                     }
-                }
-                Err(_) => {
-                    info!("No more pages left.");
-                    break;
+                    Err(_e) => {
+                        info!("No more pages found.");
+
+                        break;
+                    }
                 }
             }
         }
@@ -173,6 +189,7 @@ impl<'a> ClimaticoScraper<'a> {
         Ok(())
     }
 
+    /// Find document Nodes corresponding to products.
     async fn find_product_nodes(document: &Document) -> Find<'_, impl Predicate> {
         let predicate = Name("div")
             .and(Attr("id", "amasty-shopby-product-list"))
@@ -195,7 +212,8 @@ impl<'a> ClimaticoScraper<'a> {
         document.find(predicate)
     }
 
-    pub async fn extract_ac_product(
+    /// Extracts all AC Products from the web page.
+    pub async fn extract_ac_products(
         sources_out_dir_path: &str,
         product_info_out_dir_path: &str,
     ) -> Result<Vec<ACProduct>, String> {
@@ -373,7 +391,7 @@ impl<'a> ClimaticoScraper<'a> {
         let product_info_output_path = Path::new(product_info_output_path);
 
         if product_info_output_path.is_dir() {
-            let product_template = ProductTemplate {
+            let product_template = ShopifyProduct {
                 handle: Some(ac_product.product_code.trim().into()),
                 title: Some(ac_product.name.trim().into()),
                 vendor: Some(ac_product.manufacturer.trim().into()),
