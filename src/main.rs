@@ -2,8 +2,8 @@ use log::info;
 
 use crate::scrapers::climatico::ClimaticoScraper;
 
-pub mod scrapers;
 pub mod model;
+pub mod scrapers;
 
 /// Initialize application state before startup.
 fn init() {

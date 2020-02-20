@@ -147,7 +147,7 @@ impl Default for ProductTemplate {
             variant_image: None,
             variant_weight_unit: None,
             variant_tax_code: None,
-            cost_per_item: None
+            cost_per_item: None,
         }
     }
 }

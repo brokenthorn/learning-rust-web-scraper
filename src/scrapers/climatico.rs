@@ -8,7 +8,7 @@ use std::str::FromStr;
 use fantoccini::{Client, Locator};
 use log::{debug, error, info};
 use select::document::{Document, Find};
-use select::predicate::{And, Attr, Class, Descendant, Name, Predicate};
+use select::predicate::{Attr, Class, Name, Predicate};
 use url::Url;
 
 use crate::model::ProductTemplate;
@@ -173,7 +173,7 @@ impl<'a> ClimaticoScraper<'a> {
         Ok(())
     }
 
-    async fn find_product_nodes<P>(document: &Document) -> Find<'_, P> {
+    async fn find_product_nodes(document: &Document) -> Find<'_, impl Predicate> {
         let predicate = Name("div")
             .and(Attr("id", "amasty-shopby-product-list"))
             .descendant(
@@ -216,7 +216,7 @@ impl<'a> ClimaticoScraper<'a> {
             ));
         }
 
-        if _sources_out_dir_path.eq(&_product_info_out_dir_path) {
+        if _sources_out_dir_path.eq(_product_info_out_dir_path) {
             return Err(String::from(
                 "Output directories for page sources and product information cannot be the same!",
             ));
@@ -226,16 +226,18 @@ impl<'a> ClimaticoScraper<'a> {
 
         let mut ac_products = vec![];
 
-        for entry_result in std::fs::read_dir(_sources_out_dir_path)? {
-            let entry = entry_result?;
+        for entry_result in std::fs::read_dir(_sources_out_dir_path).map_err(|e| e.to_string())? {
+            let entry = entry_result.map_err(|e| e.to_string())?;
             let source_file_path = entry.path();
 
             if !source_file_path.is_file() {
-                info!("Skipping non-file entry: {}", source_file_path);
+                info!("Skipping non-file entry: {:?}", source_file_path);
             } else {
-                debug!("Parsing source file: {}", source_file_path);
+                debug!("Parsing source file: {:?}", source_file_path);
 
-                let document = Document::from_read(File::open(source_file_path)?)?;
+                let document =
+                    Document::from_read(File::open(source_file_path).map_err(|e| e.to_string())?)
+                        .map_err(|e| e.to_string())?;
 
                 for product in Self::find_product_nodes(&document).await {
                     info!("Found ACProduct.");
@@ -354,9 +356,8 @@ impl<'a> ClimaticoScraper<'a> {
 
                     info!("Found AC Product: {:#?}", ac_product);
 
-                    let _pt =
-                        Self::ac_product_to_product_template(ac_product, product_info_out_dir_path)
-                            .await?;
+                    Self::ac_product_to_product_template(ac_product, product_info_out_dir_path)
+                        .await?;
                 }
             }
         }
@@ -368,7 +369,7 @@ impl<'a> ClimaticoScraper<'a> {
     pub async fn ac_product_to_product_template(
         ac_product: ACProduct,
         product_info_output_path: &str,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), String> {
         let product_info_output_path = Path::new(product_info_output_path);
 
         if product_info_output_path.is_dir() {
@@ -422,7 +423,9 @@ impl<'a> ClimaticoScraper<'a> {
                 )
                 .unwrap();
 
-            writer.serialize(product_template);
+            writer
+                .serialize(product_template)
+                .map_err(|e| e.to_string())?;
         } else {
             error!(
                 "{:?} is not a directory or does not exist on disk.",
