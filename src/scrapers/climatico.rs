@@ -7,11 +7,11 @@ use std::str::FromStr;
 
 use fantoccini::{Client, Locator};
 use log::{debug, error, info};
-use select::document::Document;
-use select::predicate;
-use select::predicate::Predicate;
-use url::{ParseError, Url};
+use select::document::{Document, Find};
+use select::predicate::{And, Attr, Class, Descendant, Name, Predicate};
+use url::Url;
 
+use crate::model::ProductTemplate;
 use crate::scrapers::data::{ACProduct, Currency};
 use crate::scrapers::url_to_html_file_name;
 
@@ -37,8 +37,11 @@ impl<'a> Default for ClimaticoScraper<'a> {
         let client = match futures::executor::block_on(Client::new("http://localhost:4444")) {
             Ok(c) => c,
             // TODO: display error message in panic.
-            Err(_) => {
-                panic!("Failed to create new WebDriver session with http://localhost:4444.");
+            Err(e) => {
+                panic!(
+                    "Failed to create new WebDriver session with http://localhost:4444: {}",
+                    e
+                );
             }
         };
 
@@ -69,8 +72,11 @@ impl<'a> ClimaticoScraper<'a> {
         let client = match futures::executor::block_on(Client::new("http://localhost:4444")) {
             Ok(c) => c,
             // TODO: display error message in panic.
-            Err(_) => {
-                panic!("Failed to create new WebDriver session with http://localhost:4444.");
+            Err(e) => {
+                panic!(
+                    "Failed to create new WebDriver session with http://localhost:4444: {}",
+                    e
+                );
             }
         };
 
@@ -123,13 +129,13 @@ impl<'a> ClimaticoScraper<'a> {
 
                 info!("Saving Climatico page {:?} to {:?}", page_url, file_path);
                 let source = self.client.source().await?;
-                let mut source_file = std::fs::File::create(file_path.as_path()).expect(
-                    format!(
-                        "Failed to create file {:?} to save page {:?}.",
-                        file_path, page_url
-                    )
-                    .as_str(),
-                );
+                let mut source_file =
+                    std::fs::File::create(file_path.as_path()).unwrap_or_else(|_| {
+                        panic!(
+                            "Failed to create file {:?} to save page {:?}.",
+                            file_path, page_url
+                        )
+                    });
                 source_file
                     .write_all(source.as_ref())
                     .expect("Failed to write to disk.");
@@ -167,163 +173,260 @@ impl<'a> ClimaticoScraper<'a> {
         Ok(())
     }
 
-    // TODO: Simplify this function. It does too much.
-    pub async fn extract_ac_product(&mut self) -> std::io::Result<()> {
-        // check if path is dir and exists on disk:
-        if self.page_sources_output_path.is_dir() {
-            for entry in std::fs::read_dir(self.page_sources_output_path)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_file() {
-                    info!("Extracting ACProduct from file {:?}", path);
+    async fn find_product_nodes<P>(document: &Document) -> Find<'_, P> {
+        let predicate = Name("div")
+            .and(Attr("id", "amasty-shopby-product-list"))
+            .descendant(
+                Name("div")
+                    .and(Class("products"))
+                    .and(Class("wrapper"))
+                    .and(Class("list"))
+                    .and(Class("products-list")),
+            )
+            .descendant(
+                Name("ol")
+                    .and(Class("products"))
+                    .and(Class("list"))
+                    .and(Class("items"))
+                    .and(Class("product-items")),
+            )
+            .descendant(Name("li"));
 
-                    let document = Document::from_read(File::open(path)?)?;
+        document.find(predicate)
+    }
 
-                    let product_items_predicate = predicate::Name("div")
-                        .and(predicate::Attr("id", "amasty-shopby-product-list"))
-                        .descendant(
-                            predicate::Name("div")
-                                .and(predicate::Class("products"))
-                                .and(predicate::Class("wrapper"))
-                                .and(predicate::Class("list"))
-                                .and(predicate::Class("products-list")),
-                        )
-                        .descendant(
-                            predicate::Name("ol")
-                                .and(predicate::Class("products"))
-                                .and(predicate::Class("list"))
-                                .and(predicate::Class("items"))
-                                .and(predicate::Class("product-items")),
-                        )
-                        .descendant(predicate::Name("li"));
+    pub async fn extract_ac_product(
+        sources_out_dir_path: &str,
+        product_info_out_dir_path: &str,
+    ) -> Result<Vec<ACProduct>, String> {
+        let _sources_out_dir_path = Path::new(sources_out_dir_path);
+        let _product_info_out_dir_path = Path::new(product_info_out_dir_path);
 
-                    for product in document.find(product_items_predicate) {
-                        info!("Found ACProduct.");
+        if !_sources_out_dir_path.is_dir() {
+            return Err(format!(
+                "Argument 'sources_out_dir_path'='{}' is not a directory!",
+                sources_out_dir_path
+            ));
+        };
 
-                        let mut ac_product = ACProduct {
-                            name: "".to_string(),
-                            manufacturer: "".to_string(),
-                            product_code: "".to_string(),
-                            product_url: "".to_string(),
-                            reseller_product_page_url: "".to_string(),
-                            manufacturer_product_page_url: "".to_string(),
-                            listing_image_path: "".to_string(),
-                            listing_image_url: "".to_string(),
-                            price: 0.0,
-                            currency: Currency::RON,
-                            has_wifi_connection: false,
-                            mains_voltage: "".to_string(),
-                            internal_unit_length: "".to_string(),
-                            heating_noise_level: "".to_string(),
-                            cooling_noise_level: "".to_string(),
-                            heating_energy_class: "".to_string(),
-                            cooling_energy_class: "".to_string(),
-                            heating_btu_capacity: "".to_string(),
-                            cooling_btu_capacity: "".to_string(),
-                            category_drill_down: vec![],
-                        };
+        if !_product_info_out_dir_path.is_dir() {
+            return Err(format!(
+                "Argument 'product_info_out_dir_path'={} is not a directory!",
+                product_info_out_dir_path
+            ));
+        }
 
-                        let img_option = product
-                            .find(
-                                predicate::Name("img").and(predicate::Class("product-image-photo")),
-                            )
-                            .take(1)
-                            .next();
+        if _sources_out_dir_path.eq(&_product_info_out_dir_path) {
+            return Err(String::from(
+                "Output directories for page sources and product information cannot be the same!",
+            ));
+        }
 
-                        if let Some(img) = img_option {
-                            if let Some(a) = img.attr("data-amsrc") {
-                                ac_product.listing_image_url = String::from(a);
-                            }
-                            if let Some(a) = img.attr("alt") {
-                                ac_product.name = String::from(a);
-                            }
+        info!("Extracting AC Products from {}", sources_out_dir_path);
+
+        let mut ac_products = vec![];
+
+        for entry_result in std::fs::read_dir(_sources_out_dir_path)? {
+            let entry = entry_result?;
+            let source_file_path = entry.path();
+
+            if !source_file_path.is_file() {
+                info!("Skipping non-file entry: {}", source_file_path);
+            } else {
+                debug!("Parsing source file: {}", source_file_path);
+
+                let document = Document::from_read(File::open(source_file_path)?)?;
+
+                for product in Self::find_product_nodes(&document).await {
+                    info!("Found ACProduct.");
+
+                    let mut ac_product = ACProduct {
+                        name: "".to_string(),
+                        manufacturer: "".to_string(),
+                        product_code: "".to_string(),
+                        product_url: "".to_string(),
+                        reseller_product_page_url: "".to_string(),
+                        manufacturer_product_page_url: "".to_string(),
+                        listing_image_path: "".to_string(),
+                        listing_image_url: "".to_string(),
+                        price: 0.0,
+                        currency: Currency::RON,
+                        has_wifi_connection: false,
+                        mains_voltage: "".to_string(),
+                        internal_unit_length: "".to_string(),
+                        heating_noise_level: "".to_string(),
+                        cooling_noise_level: "".to_string(),
+                        heating_energy_class: "".to_string(),
+                        cooling_energy_class: "".to_string(),
+                        heating_btu_capacity: "".to_string(),
+                        cooling_btu_capacity: "".to_string(),
+                        category_drill_down: vec![],
+                    };
+
+                    // # Product image:
+
+                    let img_option = product
+                        .find(Name("img").and(Class("product-image-photo")))
+                        .take(1)
+                        .next();
+
+                    if let Some(img) = img_option {
+                        if let Some(a) = img.attr("data-amsrc") {
+                            ac_product.listing_image_url = String::from(a);
                         }
-
-                        let product_item_link_option = product
-                            .find(
-                                predicate::Name("strong")
-                                    .and(predicate::Class("product"))
-                                    .and(predicate::Class("name"))
-                                    .and(predicate::Class("product"))
-                                    .and(predicate::Class("product-item-name"))
-                                    .and(predicate::Class("product-name"))
-                                    .descendant(
-                                        predicate::Name("a")
-                                            .and(predicate::Class("product-item-link")),
-                                    ),
-                            )
-                            .take(1)
-                            .next();
-
-                        if let Some(product_item_link) = product_item_link_option {
-                            if let Some(a) = product_item_link.attr("href") {
-                                ac_product.product_url = String::from(a);
-                            }
+                        if let Some(a) = img.attr("alt") {
+                            ac_product.name = String::from(a);
                         }
-
-                        let product_features_table_body_option = product
-                            .find(
-                                predicate::Name("table")
-                                    .and(predicate::Class("prod-list-features"))
-                                    .descendant(predicate::Name("tbody")),
-                            )
-                            .take(1)
-                            .next();
-
-                        if let Some(table_body) = product_features_table_body_option {
-                            for tr in table_body.find(predicate::Name("tr")).into_iter() {
-                                let label_node_option = tr.first_child();
-                                let value_node_option = tr.last_child();
-
-                                let label = label_node_option
-                                    .map_or(String::from(""), |label_node| label_node.text());
-
-                                let value = value_node_option
-                                    .map_or(String::from(""), |value_node| value_node.text());
-
-                                // info!("Found ACProduct attribute: \"{}\" = \"{}\"", label, value);
-
-                                match label.as_str() {
-                                    "Cod produs:" => ac_product.product_code = value,
-                                    "Capacitate racire:" => ac_product.cooling_btu_capacity = value,
-                                    "Capacitate incalzire:" => {
-                                        ac_product.heating_btu_capacity = value
-                                    }
-                                    "Clasa energetica racire:" => {
-                                        ac_product.cooling_energy_class = value
-                                    }
-                                    "Clasa energetica incalzire:" => {
-                                        ac_product.heating_energy_class = value
-                                    }
-                                    "Tensiune alimentare:" => ac_product.mains_voltage = value,
-                                    "Nivel de zgomot racire:" => {
-                                        ac_product.cooling_noise_level = value
-                                    }
-                                    "Nivel de zgomot incalzire:" => {
-                                        ac_product.heating_noise_level = value
-                                    }
-                                    "Lungime unitate interna:" => {
-                                        ac_product.internal_unit_length = value
-                                    }
-                                    "Conexiune Wi-Fi:" => {
-                                        ac_product.has_wifi_connection =
-                                            if value.starts_with("D") { true } else { false }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        } else {
-                            info!("No product features table body found!");
-                        }
-
-                        debug!("Found AC Product: {:#?}", ac_product);
                     }
+
+                    // # Product item link:
+
+                    let product_item_link_option = product
+                        .find(
+                            Name("strong")
+                                .and(Class("product"))
+                                .and(Class("name"))
+                                .and(Class("product"))
+                                .and(Class("product-item-name"))
+                                .and(Class("product-name"))
+                                .descendant(Name("a").and(Class("product-item-link"))),
+                        )
+                        .take(1)
+                        .next();
+
+                    if let Some(product_item_link) = product_item_link_option {
+                        if let Some(a) = product_item_link.attr("href") {
+                            ac_product.product_url = String::from(a);
+                        }
+                    }
+
+                    // # Product features:
+
+                    let product_features_table_body_option = product
+                        .find(
+                            Name("table")
+                                .and(Class("prod-list-features"))
+                                .descendant(Name("tbody")),
+                        )
+                        .take(1)
+                        .next();
+
+                    if let Some(table_body) = product_features_table_body_option {
+                        for tr in table_body.find(Name("tr")).into_iter() {
+                            let label_node_option = tr.first_child();
+                            let value_node_option = tr.last_child();
+
+                            let label = label_node_option
+                                .map_or(String::from(""), |label_node| label_node.text());
+
+                            let value = value_node_option
+                                .map_or(String::from(""), |value_node| value_node.text());
+
+                            // info!("Found ACProduct attribute: \"{}\" = \"{}\"", label, value);
+
+                            match label.as_str() {
+                                "Cod produs:" => ac_product.product_code = value,
+                                "Capacitate racire:" => ac_product.cooling_btu_capacity = value,
+                                "Capacitate incalzire:" => ac_product.heating_btu_capacity = value,
+                                "Clasa energetica racire:" => {
+                                    ac_product.cooling_energy_class = value
+                                }
+                                "Clasa energetica incalzire:" => {
+                                    ac_product.heating_energy_class = value
+                                }
+                                "Tensiune alimentare:" => ac_product.mains_voltage = value,
+                                "Nivel de zgomot racire:" => ac_product.cooling_noise_level = value,
+                                "Nivel de zgomot incalzire:" => {
+                                    ac_product.heating_noise_level = value
+                                }
+                                "Lungime unitate interna:" => {
+                                    ac_product.internal_unit_length = value
+                                }
+                                "Conexiune Wi-Fi:" => {
+                                    ac_product.has_wifi_connection = value.starts_with('D')
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else {
+                        info!("No product features table body found!");
+                    }
+
+                    info!("Found AC Product: {:#?}", ac_product);
+
+                    let _pt =
+                        Self::ac_product_to_product_template(ac_product, product_info_out_dir_path)
+                            .await?;
                 }
             }
+        }
+
+        info!("All AC Products extracted.");
+        Ok(ac_products)
+    }
+
+    pub async fn ac_product_to_product_template(
+        ac_product: ACProduct,
+        product_info_output_path: &str,
+    ) -> std::io::Result<()> {
+        let product_info_output_path = Path::new(product_info_output_path);
+
+        if product_info_output_path.is_dir() {
+            let product_template = ProductTemplate {
+                handle: Some(ac_product.product_code.trim().into()),
+                title: Some(ac_product.name.trim().into()),
+                vendor: Some(ac_product.manufacturer.trim().into()),
+                r#type: Some("Aer conditionat".into()),
+                tags: Some("aer-conditionat, rezidential".into()),
+                published: Some("TRUE".into()),
+                variant_inventory_policy: Some("deny".into()),
+                variant_fulfillment_service: Some("manual".into()),
+                variant_price: Some("0".into()),
+                variant_requires_shipping: Some("FALSE".into()),
+                variant_taxable: Some("TRUE".into()),
+                gift_card: Some("FALSE".into()),
+                seo_title: Some(ac_product.name.trim().into()),
+                seo_description: Some(ac_product.name.trim().into()),
+                google_shopping_google_product_category: Some(
+                    "Hardware > Heating, Ventilation & Air Conditioning".into(),
+                ),
+                google_shopping_mpn: Some(ac_product.product_code.trim().into()),
+                image_src: Some(ac_product.listing_image_url),
+                google_shopping_ad_words_grouping: Some("Aer conditionat".into()),
+                variant_weight_unit: Some("kg".into()),
+                image_position: Some("1".into()),
+                body_html: Some(
+                    format!("<style type=\"text/css\"> .pd-table {{ border-collapse: collapse; border-spacing: 0; }} .pd-table td {{ padding: 10px 5px; border-style: solid; border-width: 0px; overflow: hidden; word-break: normal; border-top-width: 1px; border-bottom-width: 1px; border-color: black; }} .pd-table th {{ padding: 10px 5px; border-style: solid; border-width: 0px; overflow: hidden; word-break: normal; border-top-width: 1px; border-bottom-width: 1px; border-color: black; }} .pd-table .pd-table-td {{ text-align: left; vertical-align: middle }} </style> <table class=\"pd-table\"> <tr> <td class=\"pd-table-td\">Capacitate racire</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Capacitate incalzire</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Nivel zgomot racire</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Nivel zgomot incalzire</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Clasa energetica racire</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Clasa energetica incalzire</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Lungime unitate interna</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Tensiune alimentare</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">WiFi</td> <td class=\"pd-table-td\">{}</td> </tr> <tr> <td class=\"pd-table-td\">Categorie</td> <td class=\"pd-table-td\">{}</td> </tr> </table>",
+                            ac_product.cooling_btu_capacity,
+                            ac_product.heating_btu_capacity,
+                            ac_product.cooling_noise_level,
+                            ac_product.heating_noise_level,
+                            ac_product.cooling_energy_class,
+                            ac_product.heating_energy_class,
+                            ac_product.internal_unit_length,
+                            ac_product.mains_voltage,
+                            if ac_product.has_wifi_connection { String::from("Da") } else { String::from("Nu") },
+                            ac_product.category_drill_down.join(" > ")
+                    ),
+                ),
+                ..Default::default()
+            };
+
+            info!("Product template: {:#?}", product_template);
+
+            let mut writer = csv::WriterBuilder::new()
+                .from_path(
+                    product_info_output_path
+                        .join(ac_product.product_code + ".csv")
+                        .as_path(),
+                )
+                .unwrap();
+
+            writer.serialize(product_template);
         } else {
             error!(
                 "{:?} is not a directory or does not exist on disk.",
-                self.page_sources_output_path
+                product_info_output_path
             );
         }
 
